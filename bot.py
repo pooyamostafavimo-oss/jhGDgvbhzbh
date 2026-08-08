@@ -17,11 +17,16 @@ import logging
 import sys
 import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import requests
 
 from config import BOT_TOKEN, CHANNEL_ID, ITEMS, POST_INTERVAL_SECONDS
 from scraper import get_prices
+
+# ساعت پیام‌ها باید طبق منطقه‌ی زمانی ایران (تهران) نمایش داده شود،
+# چون سرورهای GitHub Actions با ساعت UTC اجرا می‌شوند.
+IRAN_TZ = ZoneInfo("Asia/Tehran")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,7 +41,7 @@ TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 def build_message() -> str:
     prices = get_prices(list(ITEMS.keys()))
 
-    now = datetime.now().strftime("%H:%M:%S")
+    now = datetime.now(IRAN_TZ).strftime("%H:%M:%S")
     lines = [f"📊 <b>گزارش لحظه‌ای قیمت‌ها</b>", f"🕒 {now}", ""]
 
     any_found = False
