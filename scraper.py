@@ -11,6 +11,7 @@
 
 import logging
 import re
+import time
 from dataclasses import dataclass
 from typing import Dict, Optional
 
@@ -27,6 +28,10 @@ HEADERS = {
         "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     ),
     "Accept-Language": "fa-IR,fa;q=0.9,en-US;q=0.8,en;q=0.7",
+    # این هدرها از کش‌شدن پاسخ توسط CDN سایت مبدأ جلوگیری می‌کنند
+    # تا همیشه آخرین نسخه‌ی صفحه (نه یک نسخه‌ی قدیمی ذخیره‌شده) دریافت شود.
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    "Pragma": "no-cache",
 }
 
 
@@ -43,10 +48,17 @@ def _clean_text(text: str) -> str:
 
 
 def fetch_html(url: str = SOURCE_URL, timeout: int = 15) -> str:
-    resp = requests.get(url, headers=HEADERS, timeout=timeout)
+    # پارامتر تصادفی مبتنی بر زمان به آدرس اضافه می‌شود تا هر بار
+    # یک آدرس «تازه» از نظر کش دیده شود و CDN مجبور شود نسخه‌ی جدید بدهد.
+    cache_buster = int(time.time())
+    sep = "&" if "?" in url else "?"
+    bust_url = f"{url}{sep}_={cache_buster}"
+
+    resp = requests.get(bust_url, headers=HEADERS, timeout=timeout)
     resp.raise_for_status()
     resp.encoding = "utf-8"
     return resp.text
+
 
 
 def parse_all_rows(html: str) -> Dict[str, PriceRow]:
