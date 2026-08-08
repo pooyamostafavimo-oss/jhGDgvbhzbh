@@ -58,6 +58,9 @@ def build_message() -> str:
 
         lines.append(f"{display_name}: <b>{row.price}</b>{change_str}")
 
+    lines.append("")
+    lines.append('📢 <a href="https://t.me/Tala_Dollar_ir">@Tala_Dollar_ir</a>')
+
     if not any_found:
         return ""
 
