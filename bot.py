@@ -54,7 +54,7 @@ def build_message() -> str:
         lines.append(f"{display_name}: <b>{row.price}</b>{change_str}")
 
     lines.append("")
-    lines.append("منبع: tgju.org")
+    
 
     if not any_found:
         return ""
