@@ -53,7 +53,7 @@ def build_message() -> str:
 
         lines.append(f"{display_name}: <b>{row.price}</b>{change_str}")
 
-    lines.append("")
+    
     
 
     if not any_found:
