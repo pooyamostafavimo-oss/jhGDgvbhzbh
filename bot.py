@@ -38,6 +38,24 @@ logger = logging.getLogger("gold-price-bot")
 TELEGRAM_API = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
 
+def get_change_arrow(change_percent: str) -> str:
+    """
+    بر اساس مقدار درصد تغییر (مثلاً "1.15%", "-2%", "0%")، اموجی مناسب را برمی‌گرداند:
+    - صفر (یا خیلی نزدیک به صفر): ➖
+    - مثبت: 🔺
+    - منفی: 🔻
+    """
+    try:
+        value = float(change_percent.replace("%", "").replace("+", "").strip())
+    except (ValueError, AttributeError):
+        # اگر به هر دلیلی نتوانستیم عدد را تشخیص دهیم، فقط بر اساس علامت منفی تصمیم بگیر
+        return "🔻" if change_percent.strip().startswith("-") else "🔺"
+
+    if value == 0:
+        return "➖"
+    return "🔺" if value > 0 else "🔻"
+
+
 def build_message() -> str:
     prices = get_prices(list(ITEMS.keys()))
 
@@ -53,7 +71,7 @@ def build_message() -> str:
 
         change_str = ""
         if row.change_percent:
-            arrow = "🔺" if not row.change_percent.startswith("-") else "🔻"
+            arrow = get_change_arrow(row.change_percent)
             change_str = f" ({arrow} {row.change_percent})"
 
         lines.append(f"{display_name}: <b>{row.price}</b>{change_str}")
