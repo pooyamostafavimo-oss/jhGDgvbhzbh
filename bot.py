@@ -29,8 +29,7 @@ from state import load_state, save_state
 # چون سرورهای GitHub Actions با ساعت UTC اجرا می‌شوند.
 IRAN_TZ = ZoneInfo("Asia/Tehran")
 
-# نام روزهای هفته و ماه‌های شمسی برای نمایش تاریخ فارسی، بدون نیاز به
-# نصب کتابخانه‌ی جانبی (jdatetime و امثال آن).
+# نام روزهای هفته به فارسی (برای نمایش تاریخ)
 WEEKDAYS_FA = {
     0: "دوشنبه",
     1: "سه‌شنبه",
@@ -40,6 +39,55 @@ WEEKDAYS_FA = {
     5: "شنبه",
     6: "یکشنبه",
 }
+
+# نام ماه‌های شمسی
+MONTHS_FA = [
+    "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
+    "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند",
+]
+
+
+def gregorian_to_jalali(gy: int, gm: int, gd: int) -> "tuple[int, int, int]":
+    """
+    تبدیل تاریخ میلادی به شمسی (جلالی)، بدون نیاز به نصب کتابخانه‌ی جانبی.
+    الگوریتم استاندارد و شناخته‌شده‌ی تبدیل گرگوری به جلالی است.
+    """
+    g_days_in_month = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    j_days_in_month = [31, 31, 31, 31, 31, 31, 30, 30, 30, 30, 30, 29]
+
+    gy2 = gy - 1600
+    gm2 = gm - 1
+    gd2 = gd - 1
+
+    g_day_no = 365 * gy2 + (gy2 + 3) // 4 - (gy2 + 99) // 100 + (gy2 + 399) // 400
+    for i in range(gm2):
+        g_day_no += g_days_in_month[i]
+    if gm2 > 1 and ((gy % 4 == 0 and gy % 100 != 0) or (gy % 400 == 0)):
+        g_day_no += 1
+    g_day_no += gd2
+
+    j_day_no = g_day_no - 79
+
+    j_np = j_day_no // 12053
+    j_day_no %= 12053
+
+    jy = 979 + 33 * j_np + 4 * (j_day_no // 1461)
+    j_day_no %= 1461
+
+    if j_day_no >= 366:
+        jy += (j_day_no - 1) // 365
+        j_day_no = (j_day_no - 1) % 365
+
+    jm = 12
+    jd = j_day_no + 1
+    for i in range(11):
+        if j_day_no < j_days_in_month[i]:
+            jm = i + 1
+            jd = j_day_no + 1
+            break
+        j_day_no -= j_days_in_month[i]
+
+    return jy, jm, jd
 
 logging.basicConfig(
     level=logging.INFO,
@@ -75,7 +123,9 @@ def build_message() -> str:
 
     now = datetime.now(IRAN_TZ)
     weekday_fa = WEEKDAYS_FA.get(now.weekday(), "")
-    date_str = now.strftime("%Y/%m/%d")
+    jy, jm, jd = gregorian_to_jalali(now.year, now.month, now.day)
+    month_fa = MONTHS_FA[jm - 1]
+    date_str = f"{jd} {month_fa} {jy}"
     time_str = now.strftime("%H:%M:%S")
 
     lines = [
