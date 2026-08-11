@@ -1,0 +1,61 @@
+name: Post Gold/Currency Prices to Telegram
+
+on:
+  schedule:
+    # هر ۵ دقیقه یک‌بار اجرا می‌شود.
+    # توجه: GitHub Actions تضمین دقیق ۵ دقیقه بودن را نمی‌دهد؛
+    # در ساعات شلوغ ممکن است چند دقیقه تأخیر داشته باشد.
+    - cron: "*/5 * * * *"
+  # اجازه‌ی اجرای دستی از تب Actions در گیت‌هاب (برای تست)
+  workflow_dispatch: {}
+
+# جلوگیری از اجرای هم‌زمان چند نسخه (اگر اجرای قبلی هنوز تمام نشده)
+# مهم: چون حالا هر اجرا آیدی پیام قبلی را از فایل last_message.json در
+# ریپازیتوری می‌خواند و دوباره در آن می‌نویسد، اجرای هم‌زمان دو نسخه
+# می‌تواند باعث تداخل شود؛ به همین دلیل cancel-in-progress نباید true شود.
+concurrency:
+  group: post-prices
+  cancel-in-progress: false
+
+# برای این‌که ورک‌فلو بتواند فایل last_message.json را دوباره به
+# ریپازیتوری پوش کند، نیاز به دسترسی نوشتن دارد.
+permissions:
+  contents: write
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Post/Edit price message on Telegram channel
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+          CHANNEL_ID: ${{ secrets.CHANNEL_ID }}
+        run: python3 post_once.py
+
+      # از آنجا که هر اجرای GitHub Actions روی یک ماشین کاملاً تازه انجام
+      # می‌شود، تنها راه به‌خاطر سپردن «آیدی همان پیام قبلی» (برای بتوانیم
+      # در دفعه‌ی بعد آن را ویرایش کنیم، نه این‌که پیام تازه بفرستیم) این
+      # است که فایل last_message.json را در خود ریپازیتوری کامیت کنیم.
+      - name: Commit updated message-id state (if changed)
+        run: |
+          if [ -n "$(git status --porcelain last_message.json 2>/dev/null)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add last_message.json
+            git commit -m "chore: update last posted message id [skip ci]"
+            git push
+          else
+            echo "چیزی برای کامیت کردن تغییر نکرده بود."
+          fi
