@@ -21,6 +21,13 @@ POST_INTERVAL_SECONDS = int(os.getenv("POST_INTERVAL_SECONDS", "300"))
 # POST_INTERVAL_SECONDS همان پیام تازه را ویرایش می‌کند.
 NEW_MESSAGE_INTERVAL_SECONDS = int(os.getenv("NEW_MESSAGE_INTERVAL_SECONDS", "1800"))
 
+# تلگرام اجازه‌ی ویرایش (edit) پیام‌های قدیمی‌تر از ۴۸ ساعت را نمی‌دهد. برای این‌که
+# ربات هیچ‌وقت گیر این محدودیت نیفتد، هر REPIN_INTERVAL_SECONDS (پیش‌فرض ۴۷ ساعت،
+# یعنی کمی زودتر از سقف ۴۸ ساعته‌ی تلگرام، برای اطمینان) به‌جای تلاش برای ویرایش،
+# خودش از قبل (proactive) یک پیام تازه می‌فرستد، آن را پین می‌کند، پین قبلی را
+# برمی‌دارد، و از همان پیام تازه چرخه‌ی ویرایش دوباره شروع می‌شود.
+REPIN_INTERVAL_SECONDS = int(os.getenv("REPIN_INTERVAL_SECONDS", str(47 * 3600)))
+
 # آدرس صفحه‌ای که قیمت‌ها از آن خوانده می‌شود
 SOURCE_URL = "https://www.tgju.org/"
 
