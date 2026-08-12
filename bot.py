@@ -27,6 +27,7 @@ from config import (
     ITEMS,
     NEW_MESSAGE_INTERVAL_SECONDS,
     POST_INTERVAL_SECONDS,
+    REPIN_INTERVAL_SECONDS,
 )
 from scraper import get_prices
 from state import load_state, save_state
@@ -104,6 +105,8 @@ logger = logging.getLogger("gold-price-bot")
 
 SEND_API = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 EDIT_API = f"https://api.telegram.org/bot{BOT_TOKEN}/editMessageText"
+PIN_API = f"https://api.telegram.org/bot{BOT_TOKEN}/pinChatMessage"
+UNPIN_API = f"https://api.telegram.org/bot{BOT_TOKEN}/unpinChatMessage"
 
 
 def get_change_arrow(change_percent: str) -> str:
@@ -227,6 +230,44 @@ def edit_existing_message(text: str, message_id: int) -> bool:
         return False
 
 
+def pin_message(message_id: int) -> bool:
+    """پیام موردنظر را در کانال پین می‌کند. خروجی True یعنی موفقیت."""
+    payload = {
+        "chat_id": CHANNEL_ID,
+        "message_id": message_id,
+        "disable_notification": True,
+    }
+    try:
+        resp = requests.post(PIN_API, data=payload, timeout=15)
+        if resp.status_code == 200:
+            return True
+        logger.warning(
+            "پین کردن پیام جدید ممکن نشد (%s - %s). لطفاً بررسی کنید که بات دسترسی "
+            "ادمین «Pin Messages» را در کانال داشته باشد.",
+            resp.status_code,
+            _extract_description(resp),
+        )
+        return False
+    except requests.RequestException as e:
+        logger.error("خطای شبکه هنگام پین کردن پیام: %s", e)
+        return False
+
+
+def unpin_message(message_id: int) -> None:
+    """پیام قبلی را از حالت پین خارج می‌کند (best-effort؛ خطای آن نادیده گرفته می‌شود)."""
+    payload = {"chat_id": CHANNEL_ID, "message_id": message_id}
+    try:
+        resp = requests.post(UNPIN_API, data=payload, timeout=15)
+        if resp.status_code != 200:
+            logger.warning(
+                "برداشتن پین پیام قبلی ممکن نشد (%s - %s)؛ مشکلی نیست، ادامه می‌دهیم.",
+                resp.status_code,
+                _extract_description(resp),
+            )
+    except requests.RequestException as e:
+        logger.warning("خطای شبکه هنگام برداشتن پین پیام قبلی (نادیده گرفته شد): %s", e)
+
+
 def run_once() -> None:
     try:
         message = build_message()
@@ -242,30 +283,48 @@ def run_once() -> None:
     message_id = state.get("message_id")
     same_channel = state.get("chat_id") == CHANNEL_ID
     last_new_message_ts = state.get("last_new_message_ts", 0)
+    message_created_ts = state.get("message_created_ts", 0)
     first_ever_run = not message_id
 
     now_ts = time.time()
     state_changed = False
 
-    # ۱) پیام پین‌شده (اصلی) را همیشه ویرایش می‌کنیم؛ این پیام هیچ‌وقت عوض
-    # نمی‌شود، مگر این‌که ویرایش آن ممکن نباشد (مثلاً حذف شده یا بیش از ۴۸
-    # ساعت از ارسالش گذشته باشد) که در آن صورت یک پیام جدید جایگزینش می‌شود.
+    # پیام پین‌شده باید عوض شود اگر: هنوز پیامی نداریم، پیام قبلی مال کانال
+    # دیگری بوده، یا از ارسال پیام فعلی بیش از REPIN_INTERVAL_SECONDS
+    # (پیش‌فرض ۴۷ ساعت) گذشته باشد. در حالت آخر، به‌جای این‌که صبر کنیم
+    # ویرایش fail شود (تلگرام بعد از ۴۸ ساعت اجازه‌ی ویرایش نمی‌دهد)، از قبل
+    # (proactive) یک پیام تازه می‌فرستیم، پینش می‌کنیم، و پین قبلی را برمی‌داریم.
+    needs_fresh_pin = (
+        not message_id
+        or not same_channel
+        or (now_ts - message_created_ts) >= REPIN_INTERVAL_SECONDS
+    )
+
     edited = False
-    if message_id and same_channel:
+    if not needs_fresh_pin:
         edited = edit_existing_message(message, message_id)
+        if not edited:
+            # ویرایش به هر دلیل دیگری (نه صرفاً عمر ۴۸ ساعته) fail شد؛ همچنان
+            # طبق منطق قبلی به یک پیام جدید سوییچ می‌کنیم.
+            needs_fresh_pin = True
 
     if edited:
         logger.info("پیام پین‌شده با موفقیت ویرایش شد (message_id=%s).", message_id)
-    else:
+    elif needs_fresh_pin:
+        old_message_id = message_id
         new_pinned_id = send_new_message(message)
         if new_pinned_id is not None:
             message_id = new_pinned_id
+            message_created_ts = now_ts
             state_changed = True
             logger.info(
-                "ویرایش پیام قبلی ممکن نبود؛ پیام پین‌شده‌ی جدیدی ارسال شد (message_id=%s). "
-                "لطفاً این پیام را در کانال پین کنید.",
+                "یک پیام پین‌شده‌ی تازه ارسال شد (message_id=%s).",
                 new_pinned_id,
             )
+            if pin_message(new_pinned_id):
+                logger.info("پیام جدید با موفقیت پین شد.")
+                if old_message_id and same_channel:
+                    unpin_message(old_message_id)
             if first_ever_run:
                 # همان لحظه که پیام پین‌شده برای اولین‌بار ساخته می‌شود، شمارش
                 # فاصله‌ی ۳۰ دقیقه‌ای هم از همین لحظه شروع شود، تا در همین دور
@@ -293,6 +352,7 @@ def run_once() -> None:
                 "chat_id": CHANNEL_ID,
                 "message_id": message_id,
                 "last_new_message_ts": last_new_message_ts,
+                "message_created_ts": message_created_ts,
             }
         )
 
