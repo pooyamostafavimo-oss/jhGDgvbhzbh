@@ -21,7 +21,13 @@ from zoneinfo import ZoneInfo
 
 import requests
 
-from config import BOT_TOKEN, CHANNEL_ID, ITEMS, POST_INTERVAL_SECONDS
+from config import (
+    BOT_TOKEN,
+    CHANNEL_ID,
+    ITEMS,
+    NEW_MESSAGE_INTERVAL_SECONDS,
+    POST_INTERVAL_SECONDS,
+)
 from scraper import get_prices
 from state import load_state, save_state
 
@@ -235,19 +241,60 @@ def run_once() -> None:
     state = load_state()
     message_id = state.get("message_id")
     same_channel = state.get("chat_id") == CHANNEL_ID
+    last_new_message_ts = state.get("last_new_message_ts", 0)
+    first_ever_run = not message_id
 
+    now_ts = time.time()
+    state_changed = False
+
+    # ۱) پیام پین‌شده (اصلی) را همیشه ویرایش می‌کنیم؛ این پیام هیچ‌وقت عوض
+    # نمی‌شود، مگر این‌که ویرایش آن ممکن نباشد (مثلاً حذف شده یا بیش از ۴۸
+    # ساعت از ارسالش گذشته باشد) که در آن صورت یک پیام جدید جایگزینش می‌شود.
     edited = False
     if message_id and same_channel:
         edited = edit_existing_message(message, message_id)
 
     if edited:
-        logger.info("پیام قبلی با موفقیت ویرایش شد (message_id=%s).", message_id)
-        return
+        logger.info("پیام پین‌شده با موفقیت ویرایش شد (message_id=%s).", message_id)
+    else:
+        new_pinned_id = send_new_message(message)
+        if new_pinned_id is not None:
+            message_id = new_pinned_id
+            state_changed = True
+            logger.info(
+                "ویرایش پیام قبلی ممکن نبود؛ پیام پین‌شده‌ی جدیدی ارسال شد (message_id=%s). "
+                "لطفاً این پیام را در کانال پین کنید.",
+                new_pinned_id,
+            )
+            if first_ever_run:
+                # همان لحظه که پیام پین‌شده برای اولین‌بار ساخته می‌شود، شمارش
+                # فاصله‌ی ۳۰ دقیقه‌ای هم از همین لحظه شروع شود، تا در همین دور
+                # یک پیام اضافه‌ی تکراری هم پست نشود.
+                last_new_message_ts = now_ts
 
-    new_message_id = send_new_message(message)
-    if new_message_id is not None:
-        save_state({"chat_id": CHANNEL_ID, "message_id": new_message_id})
-        logger.info("پیام جدید با موفقیت در کانال پست شد (message_id=%s).", new_message_id)
+    # ۲) جدا از ویرایش بالا، هر NEW_MESSAGE_INTERVAL_SECONDS یک‌بار، یک پیام
+    # تازه‌ی اضافه هم ارسال می‌کنیم (بدون این‌که به پیام پین‌شده دست بزنیم)،
+    # تا کسانی که کانال را ساب کرده‌اند یک نوتیفیکیشن/پیام تازه بالای چتشان
+    # ببینند.
+    if (now_ts - last_new_message_ts) >= NEW_MESSAGE_INTERVAL_SECONDS:
+        extra_message_id = send_new_message(message)
+        if extra_message_id is not None:
+            last_new_message_ts = now_ts
+            state_changed = True
+            logger.info(
+                "طبق فاصله‌ی %s ثانیه‌ای، یک پیام تازه‌ی اضافه (غیر از پیام پین‌شده) پست شد (message_id=%s).",
+                NEW_MESSAGE_INTERVAL_SECONDS,
+                extra_message_id,
+            )
+
+    if state_changed:
+        save_state(
+            {
+                "chat_id": CHANNEL_ID,
+                "message_id": message_id,
+                "last_new_message_ts": last_new_message_ts,
+            }
+        )
 
 
 def main() -> None:
@@ -258,7 +305,11 @@ def main() -> None:
         )
         sys.exit(1)
 
-    logger.info("بات شروع به کار کرد. فاصله‌ی ارسال: %s ثانیه", POST_INTERVAL_SECONDS)
+    logger.info(
+        "بات شروع به کار کرد. فاصله‌ی ویرایش: %s ثانیه - فاصله‌ی پیام تازه: %s ثانیه",
+        POST_INTERVAL_SECONDS,
+        NEW_MESSAGE_INTERVAL_SECONDS,
+    )
 
     while True:
         run_once()
