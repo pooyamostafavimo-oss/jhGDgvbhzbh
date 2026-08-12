@@ -16,6 +16,11 @@ CHANNEL_ID = os.getenv("CHANNEL_ID", "@your_channel_username")
 # فاصله‌ی زمانی بین هر پست، بر حسب ثانیه (پیش‌فرض ۵ دقیقه)
 POST_INTERVAL_SECONDS = int(os.getenv("POST_INTERVAL_SECONDS", "300"))
 
+# هر چند ثانیه یک‌بار، به‌جای ویرایش پیام قبلی، یک پیام کاملاً تازه ارسال شود
+# (پیش‌فرض ۳۰ دقیقه = 1800 ثانیه). در فاصله‌ی بین دو پیام تازه، بات همچنان طبق
+# POST_INTERVAL_SECONDS همان پیام تازه را ویرایش می‌کند.
+NEW_MESSAGE_INTERVAL_SECONDS = int(os.getenv("NEW_MESSAGE_INTERVAL_SECONDS", "1800"))
+
 # آدرس صفحه‌ای که قیمت‌ها از آن خوانده می‌شود
 SOURCE_URL = "https://www.tgju.org/"
 
