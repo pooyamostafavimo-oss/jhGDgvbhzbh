@@ -145,11 +145,19 @@ def build_message() -> str:
     ]
 
     any_found = False
+    bold_section_closed = False
     for index, (source_name, display_name) in enumerate(ITEMS.items()):
         row = prices.get(source_name)
         if row is None:
             continue
         any_found = True
+
+        # بین آیتم‌های بولد و بقیه‌ی آیتم‌ها، یک فاصله‌ی دو خطی (دو خط
+        # خالی به‌جای یکی) قرار می‌گیرد تا جدایی بصری بیشتری داشته باشند.
+        if index >= BOLD_ITEMS_COUNT and not bold_section_closed:
+            lines.append("")
+            lines.append("")
+            bold_section_closed = True
 
         change_str = ""
         if row.change_percent:
