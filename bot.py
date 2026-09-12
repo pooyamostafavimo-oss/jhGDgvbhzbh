@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from config import (
+    BOLD_ITEMS_COUNT,
     BOT_TOKEN,
     CHANNEL_ID,
     ITEMS,
@@ -144,7 +145,7 @@ def build_message() -> str:
     ]
 
     any_found = False
-    for source_name, display_name in ITEMS.items():
+    for index, (source_name, display_name) in enumerate(ITEMS.items()):
         row = prices.get(source_name)
         if row is None:
             continue
@@ -155,7 +156,12 @@ def build_message() -> str:
             arrow = get_change_arrow(row.change_percent)
             change_str = f" ({arrow} {row.change_percent})"
 
-        lines.append(f"{display_name}: <b>{row.price}</b>{change_str}")
+        # چهار آیتم اول (طبق ترتیب ITEMS در config.py): کل خط بولد شود.
+        # بقیه‌ی آیتم‌ها: فقط عدد قیمت بولد شود (رفتار قبلی).
+        if index < BOLD_ITEMS_COUNT:
+            lines.append(f"<b>{display_name}: {row.price}{change_str}</b>")
+        else:
+            lines.append(f"{display_name}: <b>{row.price}</b>{change_str}")
 
     lines.append("")
     lines.append('📢 <a href="https://t.me/Tala_Dollar_ir">@Tala_Dollar_ir</a>')
