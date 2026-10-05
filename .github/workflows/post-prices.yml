@@ -24,14 +24,18 @@ permissions:
 
 jobs:
   post:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
+        with:
+          # همیشه آخرین نسخه‌ی main را بگیر، نه SHA لحظه‌ی trigger
+          # (علت خطای «rejected – fetch first» همین بود)
+          ref: main
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.11"
 
@@ -49,13 +53,24 @@ jobs:
       # در دفعه‌ی بعد آن را ویرایش کنیم، نه این‌که پیام تازه بفرستیم) این
       # است که فایل last_message.json را در خود ریپازیتوری کامیت کنیم.
       - name: Commit updated message-id state (if changed)
+        if: always()
         run: |
           if [ -n "$(git status --porcelain last_message.json 2>/dev/null)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
             git add last_message.json
             git commit -m "chore: update last posted message id [skip ci]"
-            git push
+            # اگر ریپو در این فاصله تغییر کرده بود، ابتدا rebase کن (نسخه‌ی ما برای
+            # last_message.json برنده است) و دوباره push کن؛ تا ۵ بار تلاش.
+            for i in 1 2 3 4 5; do
+              if git pull --rebase -X theirs origin main && git push origin HEAD:main; then
+                exit 0
+              fi
+              echo "تلاش $i برای push ناموفق بود؛ دوباره تلاش می‌شود..."
+              sleep $((i * 3))
+            done
+            echo "push بعد از چند بار تلاش هم موفق نشد."
+            exit 1
           else
             echo "چیزی برای کامیت کردن تغییر نکرده بود."
           fi
