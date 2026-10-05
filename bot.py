@@ -206,13 +206,21 @@ def send_new_message(text: str) -> "int | None":
         return None
 
 
-def edit_existing_message(text: str, message_id: int) -> bool:
+# نتیجه‌ی تلاش برای ویرایش پیام:
+EDIT_OK = "ok"                # ویرایش شد (یا محتوا از قبل همین بود)
+EDIT_IMPOSSIBLE = "impossible"  # ویرایش ممکن نیست (حذف‌شده / قدیمی‌تر از ۴۸ ساعت / ...) => پیام جدید پین شود
+EDIT_TRANSIENT = "transient"  # خطای موقتی (شبکه، 429، 5xx) => فقط همین دور رد شود، پیام جدید نفرست
+
+
+def edit_existing_message(text: str, message_id: int) -> str:
     """
-    تلاش می‌کند پیام قبلی را ویرایش کند.
-    خروجی True یعنی: پیام ویرایش شد (یا از قبل همین محتوا را داشت) و نیازی
-    به ارسال پیام جدید نیست.
-    خروجی False یعنی: ویرایش ممکن نشد (مثلاً پیام حذف شده یا خیلی قدیمی
-    است) و باید یک پیام جدید ارسال شود.
+    تلاش می‌کند پیام قبلی را ویرایش کند و یکی از سه حالت EDIT_OK / EDIT_IMPOSSIBLE /
+    EDIT_TRANSIENT را برمی‌گرداند.
+
+    فقط وقتی تلگرام صراحتاً بگوید ویرایش ممکن نیست (خطای 400؛ مثل
+    "message can't be edited" یا "message to edit not found" که بعد از ۴۸ ساعت
+    یا حذف پیام رخ می‌دهد) پیام جدید پین می‌شود. خطاهای موقتی (قطعی شبکه،
+    محدودیت نرخ 429، خطای سرور تلگرام) باعث ساخت پیام پین‌شده‌ی تکراری نمی‌شوند.
     """
     payload = {
         "chat_id": CHANNEL_ID,
@@ -223,25 +231,28 @@ def edit_existing_message(text: str, message_id: int) -> bool:
     }
     try:
         resp = requests.post(EDIT_API, data=payload, timeout=15)
-        if resp.status_code == 200:
-            return True
-
-        description = _extract_description(resp)
-        # اگر محتوای پیام دقیقاً همان محتوای قبلی باشد، تلگرام خطای
-        # "message is not modified" می‌دهد؛ این یعنی پیام از قبل به‌روز
-        # بوده، پس این حالت را هم موفقیت در نظر می‌گیریم.
-        if "not modified" in description.lower():
-            return True
-
-        logger.warning(
-            "ویرایش پیام قبلی ممکن نشد (%s - %s)؛ به‌جای آن یک پیام جدید ارسال می‌شود.",
-            resp.status_code,
-            description,
-        )
-        return False
     except requests.RequestException as e:
-        logger.error("خطای شبکه هنگام ویرایش پیام در تلگرام: %s", e)
-        return False
+        logger.error("خطای شبکه هنگام ویرایش پیام (این دور رد می‌شود، پیام جدید ساخته نمی‌شود): %s", e)
+        return EDIT_TRANSIENT
+
+    if resp.status_code == 200:
+        return EDIT_OK
+
+    description = _extract_description(resp)
+    # اگر محتوا دقیقاً همان قبلی باشد تلگرام "message is not modified" می‌دهد؛ یعنی پیام به‌روز است.
+    if "not modified" in description.lower():
+        return EDIT_OK
+
+    if resp.status_code == 400:
+        logger.warning(
+            "ویرایش پیام قبلی ممکن نیست (%s)؛ یک پیام جدید ارسال و پین می‌شود.", description
+        )
+        return EDIT_IMPOSSIBLE
+
+    logger.warning(
+        "خطای موقتی در ویرایش پیام (%s - %s)؛ این دور رد می‌شود.", resp.status_code, description
+    )
+    return EDIT_TRANSIENT
 
 
 def pin_message(message_id: int) -> bool:
@@ -316,15 +327,17 @@ def run_once() -> None:
 
     edited = False
     if not needs_fresh_pin:
-        edited = edit_existing_message(message, message_id)
-        if not edited:
-            # ویرایش به هر دلیل دیگری (نه صرفاً عمر ۴۸ ساعته) fail شد؛ همچنان
-            # طبق منطق قبلی به یک پیام جدید سوییچ می‌کنیم.
+        result = edit_existing_message(message, message_id)
+        if result == EDIT_OK:
+            edited = True
+        elif result == EDIT_IMPOSSIBLE:
+            # ویرایش واقعاً ممکن نیست (مثلاً ۴۸ ساعت گذشته یا پیام حذف شده)
             needs_fresh_pin = True
+        # EDIT_TRANSIENT: هیچ کاری نمی‌کنیم؛ دور بعد دوباره تلاش می‌شود.
 
     if edited:
         logger.info("پیام پین‌شده با موفقیت ویرایش شد (message_id=%s).", message_id)
-    elif needs_fresh_pin:
+    if needs_fresh_pin and not edited:
         old_message_id = message_id
         new_pinned_id = send_new_message(message)
         if new_pinned_id is not None:
